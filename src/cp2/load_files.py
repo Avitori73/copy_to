@@ -91,63 +91,6 @@ def load_files_to_cache():
     return cache
 
 
-def load_files_to_cache_with_stats():
-    """
-    Load files from the current directory into a cache with statistics.
-    """
-    cache = {}
-    current_dir = os.getcwd()
-    ignore_patterns = read_cp2ignore(current_dir)
-
-    total_files = 0
-    ignored_files = 0
-    ignored_dirs = set()
-
-    for root, dirs, files in os.walk(current_dir):
-        # 检查当前目录是否应该被忽略
-        rel_root = os.path.relpath(root, current_dir)
-        if rel_root != "." and should_ignore(rel_root, ignore_patterns):
-            ignored_dirs.add(rel_root)
-            dirs.clear()  # 不继续遍历子目录
-            continue
-
-        # 过滤应该忽略的子目录
-        original_dirs = dirs[:]
-        dirs[:] = [
-            d
-            for d in dirs
-            if not should_ignore(
-                os.path.join(rel_root, d) if rel_root != "." else d, ignore_patterns
-            )
-        ]
-
-        # 记录被忽略的目录
-        for d in original_dirs:
-            if d not in dirs:
-                dir_path = os.path.join(rel_root, d) if rel_root != "." else d
-                ignored_dirs.add(dir_path)
-
-        # 处理文件
-        for file in files:
-            total_files += 1
-            file_path = os.path.join(root, file)
-            rel_file_path = os.path.relpath(file_path, current_dir)
-
-            # 检查文件是否应该被忽略
-            if should_ignore(rel_file_path, ignore_patterns):
-                ignored_files += 1
-            else:
-                cache[file] = file_path
-
-    return cache, {
-        "total_files": total_files,
-        "ignored_files": ignored_files,
-        "included_files": len(cache),
-        "ignored_dirs": sorted(ignored_dirs),
-        "ignore_patterns": ignore_patterns,
-    }
-
-
 if __name__ == "__main__":
     cache = load_files_to_cache()
     print(f"Loaded {len(cache)} files into cache.")

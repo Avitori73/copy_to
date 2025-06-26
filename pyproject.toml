@@ -5,9 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "dotenv>=0.9.9",
+    "platformdirs>=4.3.8",
     "questionary>=2.1.0",
     "rich>=14.0.0",
+    "toml>=0.10.2",
 ]
 
 [build-system]
