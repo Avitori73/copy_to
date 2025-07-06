@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "platformdirs>=4.3.8",
+    "pydantic>=2.11.7",
     "questionary>=2.1.0",
     "rich>=14.0.0",
     "toml>=0.10.2",
@@ -20,3 +21,4 @@ package-dir = {"" = "src"}
 
 [project.scripts]
 cp2 = "cp2.main:main"
+cp2-config = "cp2.cp2_config:main"

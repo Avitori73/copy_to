@@ -1,7 +1,126 @@
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 import toml
 from platformdirs import user_config_dir
+from pydantic import BaseModel, Field, ValidationError, field_validator
+from rich.console import Console
+
+# 创建一个控制台实例，用于输出
+console = Console()
+
+
+# 定义配置模型
+class ExcludeConfig(BaseModel):
+    """排除配置模型"""
+
+    patterns: List[str] = Field(
+        default_factory=lambda: [
+            "*.pyc",
+            "__pycache__/",
+            ".git/",
+            ".vscode/",
+            ".idea/",
+            ".DS_Store",
+            "node_modules/",
+            "dist/",
+            "build/",
+            ".env",
+            ".venv/",
+            "venv/",
+            "env/",
+        ],
+        description="排除的文件模式列表",
+    )
+    ignore_file: str = Field(default=".gitignore", description="忽略文件名")
+
+    @field_validator("patterns")
+    @classmethod
+    def validate_patterns(cls, v):
+        """验证模式列表并去重"""
+        if not isinstance(v, list):
+            raise ValueError("patterns 必须是一个列表")
+        if not all(isinstance(pattern, str) for pattern in v):
+            raise ValueError("patterns 中的所有项目都必须是字符串")
+        # 去重并保持顺序
+        seen = set()
+        unique_patterns = []
+        for pattern in v:
+            if pattern not in seen:
+                seen.add(pattern)
+                unique_patterns.append(pattern)
+        return unique_patterns
+
+    @field_validator("ignore_file")
+    @classmethod
+    def validate_ignore_file(cls, v):
+        """验证忽略文件名"""
+        if not isinstance(v, str):
+            raise ValueError("ignore_file 必须是字符串")
+        if not v.strip():
+            raise ValueError("ignore_file 不能为空")
+        return v.strip()
+
+
+class ProjectInfo(BaseModel):
+    """单个项目的信息模型"""
+
+    path: str = Field(description="项目路径")
+    description: Optional[str] = Field(default=None, description="项目描述")
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, v):
+        """验证项目路径"""
+        if not isinstance(v, str):
+            raise ValueError("path 必须是字符串")
+        if not v.strip():
+            raise ValueError("path 不能为空")
+        return v.strip()
+
+
+class ProjectConfig(BaseModel):
+    """项目配置模型 - 使用字典存储项目信息"""
+
+    projects: Dict[str, ProjectInfo] = Field(
+        default_factory=dict, description="项目配置字典"
+    )
+
+    def add_project(self, name: str, path: str, description: Optional[str] = None):
+        """添加项目"""
+        project_info = ProjectInfo(path=path, description=description)
+        self.projects[name] = project_info
+
+    def remove_project(self, name: str):
+        """移除项目"""
+        if name in self.projects:
+            del self.projects[name]
+
+    def get_project(self, name: str) -> Optional[ProjectInfo]:
+        """获取项目信息"""
+        return self.projects.get(name)
+
+    def list_projects(self) -> Dict[str, ProjectInfo]:
+        """列出所有项目"""
+        return self.projects.copy()
+
+    def model_dump(self, **kwargs) -> Dict[str, Any]:
+        """自定义序列化方法 - 直接返回项目字典而不是嵌套的 projects 键"""
+        result = {}
+        for name, project_info in self.projects.items():
+            result[name] = project_info.model_dump(**kwargs)
+        return result
+
+
+class CP2ConfigModel(BaseModel):
+    """主配置模型"""
+
+    exclude: ExcludeConfig = Field(default_factory=ExcludeConfig)
+    project: ProjectConfig = Field(default_factory=ProjectConfig)
+
+    model_config = {
+        "extra": "allow",  # 允许额外字段
+        "validate_assignment": True,  # 赋值时验证
+    }
 
 
 class CP2Config:
@@ -9,7 +128,6 @@ class CP2Config:
         """
         初始化配置管理器
 
-        :param app_name: 应用名称，用于确定配置目录
         :param config_filename: 配置文件名，默认为 config.toml
         """
         # 获取跨平台配置目录
@@ -20,60 +138,92 @@ class CP2Config:
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
         # 加载配置
-        self._config = self._load_config()
+        self._config_model = self._load_config()
 
-    def _load_config(self) -> Dict[str, Any]:
-        """加载配置文件，如果不存在则获取默认值并创建配置文件，返回默认值"""
+    def _load_config(self) -> CP2ConfigModel:
+        """加载配置文件，返回验证后的配置模型"""
         try:
             if self.config_file.exists():
                 # 如果配置文件存在，读取并解析
                 with open(self.config_file, "r", encoding="utf-8") as f:
-                    return toml.load(f)
+                    raw_config = toml.load(f)
+
+                # 使用 Pydantic 验证配置
+                try:
+                    # 处理项目配置的特殊结构
+                    config_model = CP2ConfigModel()
+
+                    # 设置排除配置
+                    if "exclude" in raw_config:
+                        config_model.exclude = ExcludeConfig(**raw_config["exclude"])
+
+                    # 设置项目配置
+                    if "project" in raw_config and isinstance(
+                        raw_config["project"], dict
+                    ):
+                        project_config = ProjectConfig()
+                        for project_name, project_data in raw_config["project"].items():
+                            if (
+                                isinstance(project_data, dict)
+                                and "path" in project_data
+                            ):
+                                project_config.add_project(
+                                    name=project_name,
+                                    path=project_data["path"],
+                                    description=project_data.get("description"),
+                                )
+                        config_model.project = project_config
+
+                    # 保存验证后的配置回文件（修正任何格式问题）
+                    self._save_config(config_model)
+                    return config_model
+                except ValidationError:
+                    console.print("[red]配置文件验证失败[/red]")
+                    console.print("[yellow]使用默认配置并重新创建配置文件[/yellow]")
+                    config_model = CP2ConfigModel()
+                    self._save_config(config_model)
+                    return config_model
             else:
                 # 如果配置文件不存在，使用默认配置并创建文件
-                default_config = self._cp2_default_config()
-                with open(self.config_file, "w", encoding="utf-8") as f:
-                    toml.dump(default_config, f)
-                return default_config
+                config_model = CP2ConfigModel()
+                self._save_config(config_model)
+                return config_model
         except toml.TomlDecodeError:
-            raise RuntimeError("配置文件格式错误，请检查 config.toml 文件的语法")
-        except Exception as e:
-            raise RuntimeError(f"加载配置文件失败: {e}")
+            console.print("[red]配置文件格式错误[/red]")
+            raise SystemExit()
+        except Exception:
+            console.print("[red]加载配置文件失败[/red]")
+            raise SystemExit()
 
-    def _cp2_default_config(self) -> Dict[str, Any]:
-        """获取默认配置"""
-        return {
-            "exclude": {
-                "patterns": [
-                    "*.pyc",
-                    "__pycache__/",
-                    ".git/",
-                    ".vscode/",
-                    ".idea/",
-                    ".DS_Store",
-                    "node_modules/",
-                    "dist/",
-                    "build/",
-                    ".env",
-                    ".venv/",
-                    "venv/",
-                    "env/",
-                ],
-                "config_file": ".gitignore",
-            }
-        }
-
-    def _save_config(self):
-        """保存当前配置到文件"""
+    def _save_config(self, config_model: Optional[CP2ConfigModel] = None):
+        """保存配置到文件"""
         try:
+            if config_model is None:
+                config_model = self._config_model
+
+            # 将 Pydantic 模型转换为字典
+            config_dict = {
+                "exclude": config_model.exclude.model_dump(),
+                "project": config_model.project.model_dump(),
+            }
+
             with open(self.config_file, "w", encoding="utf-8") as f:
-                toml.dump(self._config, f)
-        except Exception as e:
-            raise RuntimeError(f"保存配置文件失败: {e}")
+                toml.dump(config_dict, f)
+        except Exception:
+            console.print("[red]保存配置文件失败[/red]")
+            raise SystemExit()
+
+    @property
+    def _config(self) -> Dict[str, Any]:
+        """获取配置字典（向后兼容）"""
+        return {
+            "exclude": self._config_model.exclude.model_dump(),
+            "project": self._config_model.project.model_dump(),
+        }
 
     def get(self, key: str, default: Optional[Any] = None) -> Any:
         """
-        获取配置值，支持点分隔符 (如 'database.host')
+        获取配置值，支持点分隔符 (如 'exclude.patterns')
 
         :param key: 配置键，可以使用点表示法访问嵌套值
         :param default: 如果键不存在时返回的默认值
@@ -93,14 +243,18 @@ class CP2Config:
 
     def set(self, key: str, value: Any, save: bool = True):
         """
-        设置配置值，支持点分隔符 (如 'database.host')
+        设置配置值，支持点分隔符和类型验证
 
         :param key: 配置键，可以使用点表示法访问嵌套值
         :param value: 要设置的值
         :param save: 是否立即保存到文件
         """
+        # 获取当前配置字典
+        config_dict = self._config_model.model_dump()
+
+        # 设置新值
         keys = key.split(".")
-        current = self._config
+        current = config_dict
 
         for k in keys[:-1]:
             if k not in current or not isinstance(current[k], dict):
@@ -109,8 +263,13 @@ class CP2Config:
 
         current[keys[-1]] = value
 
-        if save:
-            self._save_config()
+        # 使用 Pydantic 验证新配置
+        try:
+            self._config_model = CP2ConfigModel(**config_dict)
+            if save:
+                self._save_config()
+        except ValidationError as e:
+            raise ValueError(f"配置验证失败: {e}")
 
     def delete(self, key: str, save: bool = True):
         """
@@ -119,8 +278,9 @@ class CP2Config:
         :param key: 要删除的配置键
         :param save: 是否立即保存到文件
         """
+        config_dict = self._config_model.model_dump()
         keys = key.split(".")
-        current = self._config
+        current = config_dict
 
         for k in keys[:-1]:
             if k not in current or not isinstance(current[k], dict):
@@ -129,16 +289,76 @@ class CP2Config:
 
         if keys[-1] in current:
             del current[keys[-1]]
-            if save:
-                self._save_config()
+            try:
+                self._config_model = CP2ConfigModel(**config_dict)
+                if save:
+                    self._save_config()
+            except ValidationError as e:
+                raise ValueError(f"删除配置项后验证失败: {e}")
+
+    def validate_config(self) -> bool:
+        """验证当前配置是否有效"""
+        try:
+            # 重新验证当前配置
+            config_dict = self._config_model.model_dump()
+            CP2ConfigModel(**config_dict)
+            return True
+        except ValidationError:
+            return False
+
+    def get_validation_errors(self) -> Optional[str]:
+        """获取配置验证错误信息"""
+        try:
+            config_dict = self._config_model.model_dump()
+            CP2ConfigModel(**config_dict)
+            return None
+        except ValidationError as e:
+            return str(e)
+
+    # 项目管理的便捷方法
+    def add_project(
+        self, name: str, path: str, description: Optional[str] = None, save: bool = True
+    ):
+        """添加项目"""
+        self._config_model.project.add_project(name, path, description)
+        if save:
+            self._save_config()
+
+    def remove_project(self, name: str, save: bool = True):
+        """移除项目"""
+        self._config_model.project.remove_project(name)
+        if save:
+            self._save_config()
+
+    def get_project(self, name: str) -> Optional[Dict[str, Any]]:
+        """获取项目信息"""
+        project_info = self._config_model.project.get_project(name)
+        return project_info.model_dump() if project_info else None
+
+    def list_projects(self) -> Dict[str, Dict[str, Any]]:
+        """列出所有项目"""
+        projects = self._config_model.project.list_projects()
+        return {name: info.model_dump() for name, info in projects.items()}
+
+    def project_exists(self, name: str) -> bool:
+        """检查项目是否存在"""
+        return self._config_model.project.get_project(name) is not None
 
     def get_config_path(self) -> Path:
         """获取配置文件完整路径"""
         return self.config_file
 
+    def get_ignore_file(self) -> str:
+        """获取忽略文件名"""
+        return self._config_model.exclude.ignore_file
+
+    def get_exclude_patterns(self) -> List[str]:
+        """获取排除模式列表"""
+        return self._config_model.exclude.patterns
+
     def reload(self):
         """重新加载配置文件"""
-        self._config = self._load_config()
+        self._config_model = self._load_config()
 
     def save(self):
         """显式保存当前配置到文件"""
@@ -146,7 +366,7 @@ class CP2Config:
 
     def reset(self):
         """重置 config 文件恢复为默认"""
-        self._config = self._cp2_default_config()
+        self._config_model = CP2ConfigModel()
         self._save_config()
 
     def __contains__(self, key: str) -> bool:
@@ -170,15 +390,89 @@ class CP2Config:
 
 
 # 使用示例
-if __name__ == "__main__":
+def main():
+    """主函数，用于测试配置管理器"""
+    console.print("=== CP2 配置管理器测试 ===\n")
+
     # 初始化配置管理器
     config = CP2Config()
 
-    config.reset()
-
     # 打印配置文件路径
-    print(f"配置文件位置: {config.get_config_path()}")
+    console.print(f"配置文件位置: {config.get_config_path()}")
+
+    # 验证配置
+    console.print(f"配置验证: {'✓ 通过' if config.validate_config() else '✗ 失败'}")
 
     # 打印当前所有配置
-    print("\n当前所有配置:")
-    print(toml.dumps(config._config))
+    console.print("\n当前所有配置:")
+    console.print(toml.dumps(config._config))
+
+    # 测试项目配置
+    console.print("\n=== 测试项目配置 ===")
+
+    try:
+        # 添加项目
+        config.add_project("web_app", "/path/to/web/app", "我的网站项目")
+        config.add_project("api_server", "/path/to/api", "API 服务器")
+        console.print("✓ 添加项目成功")
+
+        # 列出项目
+        projects = config.list_projects()
+        console.print(f"✓ 当前项目数量: {len(projects)}")
+        for name, info in projects.items():
+            console.print(
+                f"  - {name}: {info['path']} ({info.get('description', '无描述')})"
+            )
+
+        # 获取单个项目
+        web_app = config.get_project("web_app")
+        console.print(f"✓ 获取 web_app 项目: {web_app}")
+
+        # 检查项目是否存在
+        console.print(f"✓ web_app 存在: {config.project_exists('web_app')}")
+        console.print(f"✓ nonexistent 存在: {config.project_exists('nonexistent')}")
+
+    except Exception as e:
+        console.print(f"✗ 项目配置测试失败: {e}")
+
+    # 测试类型验证
+    console.print("\n=== 测试类型验证 ===")
+
+    try:
+        # 正确的设置
+        current_patterns = config.get("exclude.patterns", [])
+        current_patterns.append("*.log")
+        config.set("exclude.patterns", current_patterns)
+        console.print("✓ 添加排除模式成功")
+
+        # 尝试错误的类型设置
+        try:
+            config.set("exclude.patterns", "这不是一个列表")
+            console.print("✗ 应该失败但没有失败")
+        except ValueError as e:
+            console.print(f"✓ 类型验证成功拦截错误: {str(e)[:100]}...")
+
+        # 尝试添加无效路径的项目
+        try:
+            config.add_project("invalid_project", "", "空路径项目")
+            console.print("✗ 应该失败但没有失败")
+        except Exception as e:
+            console.print(f"✓ 项目路径验证成功拦截错误: {str(e)[:100]}...")
+
+    except Exception as e:
+        console.print(f"✗ 测试失败: {e}")
+
+    # 打印最终配置
+    console.print("\n最终配置:")
+    console.print(toml.dumps(config._config))
+
+    # 打印验证错误（如果有）
+    errors = config.get_validation_errors()
+    if errors:
+        console.print(f"\n验证错误: {errors}")
+    else:
+        console.print("\n✓ 配置验证通过")
+
+
+if __name__ == "__main__":
+    main()
