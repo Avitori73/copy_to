@@ -61,7 +61,7 @@ class ExcludeConfig(BaseModel):
         return v.strip()
 
 
-class ProjectInfo(BaseModel):
+class MarkInfo(BaseModel):
     """单个项目的信息模型"""
 
     path: str = Field(description="项目路径")
@@ -78,36 +78,34 @@ class ProjectInfo(BaseModel):
         return v.strip()
 
 
-class ProjectConfig(BaseModel):
+class MarkConfig(BaseModel):
     """项目配置模型 - 使用字典存储项目信息"""
 
-    projects: Dict[str, ProjectInfo] = Field(
-        default_factory=dict, description="项目配置字典"
-    )
+    marks: Dict[str, MarkInfo] = Field(default_factory=dict, description="项目配置字典")
 
-    def add_project(self, name: str, path: str, description: Optional[str] = None):
+    def add_mark(self, name: str, path: str, description: Optional[str] = None):
         """添加项目"""
-        project_info = ProjectInfo(path=path, description=description)
-        self.projects[name] = project_info
+        mark_info = MarkInfo(path=path, description=description)
+        self.marks[name] = mark_info
 
-    def remove_project(self, name: str):
+    def remove_mark(self, name: str):
         """移除项目"""
-        if name in self.projects:
-            del self.projects[name]
+        if name in self.marks:
+            del self.marks[name]
 
-    def get_project(self, name: str) -> Optional[ProjectInfo]:
+    def get_mark(self, name: str) -> Optional[MarkInfo]:
         """获取项目信息"""
-        return self.projects.get(name)
+        return self.marks.get(name)
 
-    def list_projects(self) -> Dict[str, ProjectInfo]:
+    def list_marks(self) -> Dict[str, MarkInfo]:
         """列出所有项目"""
-        return self.projects.copy()
+        return self.marks.copy()
 
     def model_dump(self, **kwargs) -> Dict[str, Any]:
-        """自定义序列化方法 - 直接返回项目字典而不是嵌套的 projects 键"""
+        """自定义序列化方法 - 直接返回项目字典而不是嵌套的 marks 键"""
         result = {}
-        for name, project_info in self.projects.items():
-            result[name] = project_info.model_dump(**kwargs)
+        for name, mark_info in self.marks.items():
+            result[name] = mark_info.model_dump(**kwargs)
         return result
 
 
@@ -115,7 +113,7 @@ class CP2ConfigModel(BaseModel):
     """主配置模型"""
 
     exclude: ExcludeConfig = Field(default_factory=ExcludeConfig)
-    project: ProjectConfig = Field(default_factory=ProjectConfig)
+    mark: MarkConfig = Field(default_factory=MarkConfig)
 
     model_config = {
         "extra": "allow",  # 允许额外字段
@@ -158,21 +156,16 @@ class CP2Config:
                         config_model.exclude = ExcludeConfig(**raw_config["exclude"])
 
                     # 设置项目配置
-                    if "project" in raw_config and isinstance(
-                        raw_config["project"], dict
-                    ):
-                        project_config = ProjectConfig()
-                        for project_name, project_data in raw_config["project"].items():
-                            if (
-                                isinstance(project_data, dict)
-                                and "path" in project_data
-                            ):
-                                project_config.add_project(
-                                    name=project_name,
-                                    path=project_data["path"],
-                                    description=project_data.get("description"),
+                    if "mark" in raw_config and isinstance(raw_config["mark"], dict):
+                        mark_config = MarkConfig()
+                        for mark_name, mark_data in raw_config["mark"].items():
+                            if isinstance(mark_data, dict) and "path" in mark_data:
+                                mark_config.add_mark(
+                                    name=mark_name,
+                                    path=mark_data["path"],
+                                    description=mark_data.get("description"),
                                 )
-                        config_model.project = project_config
+                        config_model.mark = mark_config
 
                     # 保存验证后的配置回文件（修正任何格式问题）
                     self._save_config(config_model)
@@ -204,7 +197,7 @@ class CP2Config:
             # 将 Pydantic 模型转换为字典
             config_dict = {
                 "exclude": config_model.exclude.model_dump(),
-                "project": config_model.project.model_dump(),
+                "mark": config_model.mark.model_dump(),
             }
 
             with open(self.config_file, "w", encoding="utf-8") as f:
@@ -218,8 +211,17 @@ class CP2Config:
         """获取配置字典（向后兼容）"""
         return {
             "exclude": self._config_model.exclude.model_dump(),
-            "project": self._config_model.project.model_dump(),
+            "mark": self._config_model.mark.model_dump(),
         }
+
+    def has_mark(self, name: str) -> bool:
+        """
+        检查项目是否存在
+
+        :param name: 项目名称
+        :return: 如果项目存在返回 True，否则返回 False
+        """
+        return name in self._config_model.mark.marks
 
     def get(self, key: str, default: Optional[Any] = None) -> Any:
         """
@@ -316,33 +318,33 @@ class CP2Config:
             return str(e)
 
     # 项目管理的便捷方法
-    def add_project(
+    def add_mark(
         self, name: str, path: str, description: Optional[str] = None, save: bool = True
     ):
         """添加项目"""
-        self._config_model.project.add_project(name, path, description)
+        self._config_model.mark.add_mark(name, path, description)
         if save:
             self._save_config()
 
-    def remove_project(self, name: str, save: bool = True):
+    def remove_mark(self, name: str, save: bool = True):
         """移除项目"""
-        self._config_model.project.remove_project(name)
+        self._config_model.mark.remove_mark(name)
         if save:
             self._save_config()
 
-    def get_project(self, name: str) -> Optional[Dict[str, Any]]:
+    def get_mark(self, name: str) -> Optional[Dict[str, Any]]:
         """获取项目信息"""
-        project_info = self._config_model.project.get_project(name)
-        return project_info.model_dump() if project_info else None
+        mark_info = self._config_model.mark.get_mark(name)
+        return mark_info.model_dump() if mark_info else None
 
-    def list_projects(self) -> Dict[str, Dict[str, Any]]:
+    def list_marks(self) -> Dict[str, Dict[str, Any]]:
         """列出所有项目"""
-        projects = self._config_model.project.list_projects()
-        return {name: info.model_dump() for name, info in projects.items()}
+        marks = self._config_model.mark.list_marks()
+        return {name: info.model_dump() for name, info in marks.items()}
 
-    def project_exists(self, name: str) -> bool:
+    def mark_exists(self, name: str) -> bool:
         """检查项目是否存在"""
-        return self._config_model.project.get_project(name) is not None
+        return self._config_model.mark.get_mark(name) is not None
 
     def get_config_path(self) -> Path:
         """获取配置文件完整路径"""
@@ -412,25 +414,25 @@ def main():
 
     try:
         # 添加项目
-        config.add_project("web_app", "/path/to/web/app", "我的网站项目")
-        config.add_project("api_server", "/path/to/api", "API 服务器")
+        config.add_mark("web_app", "/path/to/web/app", "我的网站项目")
+        config.add_mark("api_server", "/path/to/api", "API 服务器")
         console.print("✓ 添加项目成功")
 
         # 列出项目
-        projects = config.list_projects()
-        console.print(f"✓ 当前项目数量: {len(projects)}")
-        for name, info in projects.items():
+        marks = config.list_marks()
+        console.print(f"✓ 当前项目数量: {len(marks)}")
+        for name, info in marks.items():
             console.print(
                 f"  - {name}: {info['path']} ({info.get('description', '无描述')})"
             )
 
         # 获取单个项目
-        web_app = config.get_project("web_app")
+        web_app = config.get_mark("web_app")
         console.print(f"✓ 获取 web_app 项目: {web_app}")
 
         # 检查项目是否存在
-        console.print(f"✓ web_app 存在: {config.project_exists('web_app')}")
-        console.print(f"✓ nonexistent 存在: {config.project_exists('nonexistent')}")
+        console.print(f"✓ web_app 存在: {config.mark_exists('web_app')}")
+        console.print(f"✓ nonexistent 存在: {config.mark_exists('nonexistent')}")
 
     except Exception as e:
         console.print(f"✗ 项目配置测试失败: {e}")
@@ -454,7 +456,7 @@ def main():
 
         # 尝试添加无效路径的项目
         try:
-            config.add_project("invalid_project", "", "空路径项目")
+            config.add_mark("invalid_mark", "", "空路径项目")
             console.print("✗ 应该失败但没有失败")
         except Exception as e:
             console.print(f"✓ 项目路径验证成功拦截错误: {str(e)[:100]}...")

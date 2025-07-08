@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "click>=8.2.1",
     "platformdirs>=4.3.8",
     "pydantic>=2.11.7",
     "questionary>=2.1.0",
@@ -20,5 +21,5 @@ build-backend = "setuptools.build_meta"
 package-dir = {"" = "src"}
 
 [project.scripts]
-cp2 = "cp2.main:main"
+cp2 = "cp2.cli:main"
 cp2-config = "cp2.cp2_config:main"
