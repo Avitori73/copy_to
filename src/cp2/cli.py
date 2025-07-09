@@ -1,5 +1,5 @@
 import os
-import click
+import rich_click as click
 
 from pathlib import Path
 from rich.console import Console
@@ -33,11 +33,8 @@ def mark():
 @click.option("-p", "--path", help="Path for the mark")
 @click.option("-d", "--desc", help="Description for the mark")
 def mark_add(path, name, desc, **options):
-    """Add a new mark bookmark.
+    """Add a new mark bookmark."""
 
-    Usage: cp2 mark add <path> [name]
-    Or with options: cp2 mark add -p <path> -n <name>
-    """
     # Use option values if provided, otherwise use positional arguments
     final_path = options.get("path") or path
     final_name = options.get("name") or name
@@ -71,6 +68,7 @@ def mark_add(path, name, desc, **options):
 @click.argument("name")
 def mark_remove(name):
     """Remove a mark bookmark by name."""
+
     console.print(f"Removing mark '{name}'")
     if not cp2_config.has_mark(name):
         console.print(f"[red]Error:[/] Mark '{name}' does not exist.")
@@ -82,6 +80,7 @@ def mark_remove(name):
 @mark.command("list")
 def mark_list():
     """List all mark bookmarks."""
+
     marks = cp2_config.list_marks()
     if not marks:
         console.print("[yellow]No marks found.[/yellow]")
