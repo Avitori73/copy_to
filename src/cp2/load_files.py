@@ -65,20 +65,21 @@ def should_ignore(path, ignore_patterns) -> bool:
     return False
 
 
-def load_files_to_cache(cp2_config: CP2Config) -> Dict[str, str]:
+def load_files_to_cache(
+    cp2_config: CP2Config, target_dir: str = os.getcwd()
+) -> Dict[str, str]:
     """
     Load files from the current directory into a cache.
     """
     cache = {}
-    current_dir = os.getcwd()
 
     ignore_patterns = read_ignore_pattern(
-        current_dir, cp2_config.get_ignore_file(), cp2_config.get_exclude_patterns()
+        target_dir, cp2_config.get_ignore_file(), cp2_config.get_exclude_patterns()
     )
 
-    for root, dirs, files in os.walk(current_dir):
+    for root, dirs, files in os.walk(target_dir):
         # 检查当前目录是否应该被忽略
-        rel_root = os.path.relpath(root, current_dir)
+        rel_root = os.path.relpath(root, target_dir)
         if rel_root != "." and should_ignore(rel_root, ignore_patterns):
             dirs.clear()  # 不继续遍历子目录
             continue
@@ -95,11 +96,11 @@ def load_files_to_cache(cp2_config: CP2Config) -> Dict[str, str]:
         # 处理文件
         for file in files:
             file_path = os.path.join(root, file)
-            rel_file_path = os.path.relpath(file_path, current_dir)
+            rel_file_path = os.path.relpath(file_path, target_dir)
 
             # 检查文件是否应该被忽略
             if not should_ignore(rel_file_path, ignore_patterns):
-                cache[file] = rel_file_path
+                cache[file] = file_path
 
     return cache
 
@@ -114,7 +115,7 @@ def main():
     results = fuzzy_search_files(query, cache)
     print("\nFuzzy search results:")
     for filename, filepath, score in results[:10]:
-        print(f"  {filename} (Path: '.\\{filepath}', Score: {score})")
+        print(f"  {filename} (Path: '{filepath}', Score: {score})")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.prompt import Confirm
 from rich.table import Table
+from rich.box import HORIZONTALS
 
 from .interactive import interactive
 from .cp2_config import CP2Config
@@ -83,18 +84,18 @@ def mark_list():
 
     marks = cp2_config.list_marks()
     if not marks:
-        console.print("[yellow]No marks found.[/yellow]")
+        console.print("[yellow]No marks found. 😥[/yellow]")
         return
+
+    table = Table(box=HORIZONTALS, show_edge=False)
+    table.add_column("Name", style="cyan", header_style="cyan", no_wrap=True)
+    table.add_column("Path", style="magenta", header_style="magenta")
+    table.add_column("Description", style="green", header_style="green", no_wrap=False)
+
     for name, info in marks.items():
-        table = Table()
-        table.add_column("Name", style="cyan", no_wrap=True)
-        table.add_column("Path", style="magenta")
-        table.add_column("Description", style="green", no_wrap=False)
+        table.add_row(name, info["path"], info["description"])
 
-        for name, info in marks.items():
-            table.add_row(name, info["path"], info["description"])
-
-        console.print(table)
+    console.print(table)
 
 
 @main.command()
@@ -105,7 +106,7 @@ def mark_list():
 )
 def start(start_path):
     """Start CP2 interactive interface."""
-    interactive(cp2_config, start_path)
+    interactive(cp2_config, start_path, console)
 
 
 if __name__ == "__main__":
