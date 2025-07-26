@@ -1,4 +1,3 @@
-import os
 import rich_click as click
 
 from pathlib import Path
@@ -8,6 +7,7 @@ from rich.table import Table
 from rich.box import HORIZONTALS
 
 from .interactive import interactive
+from .interactive_fzf import interactive_fzf
 from .cp2_config import CP2Config
 
 cp2_config = CP2Config()
@@ -99,14 +99,15 @@ def mark_list():
 
 
 @main.command()
-@click.argument(
-    "start_path",
-    default=os.getcwd(),
-    type=click.Path(exists=True, file_okay=False, dir_okay=True),
-)
-def start(start_path):
+def start():
     """Start CP2 interactive interface."""
-    interactive(cp2_config, start_path, console)
+    interactive(cp2_config, console)
+
+
+@main.command()
+def fzf():
+    """Start CP2 interactive interface."""
+    interactive_fzf(cp2_config, console)
 
 
 if __name__ == "__main__":

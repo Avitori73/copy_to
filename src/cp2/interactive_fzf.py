@@ -2,10 +2,9 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import subprocess
 import sys
-from typing import List, Set, Tuple
-from .fuzzy_search import fuzzy_search_files
-from .load_files import load_files_to_cache
+from typing import List, Set
 from .cp2_config import CP2Config
 from rich.console import Console
 from rich.table import Table
@@ -19,7 +18,7 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 
-def interactive(cp2_config: CP2Config, console: Console) -> None:
+def interactive_fzf(cp2_config: CP2Config, console: Console) -> None:
     """
     Start the interactive interface for CP2.
 
@@ -29,7 +28,8 @@ def interactive(cp2_config: CP2Config, console: Console) -> None:
     """
     # 注册信号处理器以确保 Ctrl+C 能够正确处理
     signal.signal(signal.SIGINT, signal_handler)
-    target_path = os.getcwd()  # Default to current working directory
+
+    target_path = os.getcwd()
 
     # search files
     console.print("[cyan]Initializing CP2...[/cyan]")
@@ -39,65 +39,51 @@ def interactive(cp2_config: CP2Config, console: Console) -> None:
         console.print("[yellow]No marks found. Please add some marks first.🤠[/yellow]")
         return
 
-    console.print("[cyan]Loading files from directory...[/cyan]")
-    cache = load_files_to_cache(cp2_config, target_path)
-    console.print(f"[green]✅ Found {len(cache)} files[/green]")
-
     console.print("[cyan]Starting interactive file selection...[/cyan]")
-    selected_files: Set[Tuple[str, str, int]] = set()
+    selected_files: Set[str] = set()
+
     while True:
-        query = questionary.text(
-            "Which file do you want to copy? (type at least 3 characters to search, or 'n' to next step)",
-        ).ask()
+        # select files by fd, fzf
+        if not selected_files:
+            fzf_result = select_files_by_fzf(console)
+            if not fzf_result:
+                console.print("[yellow]No files selected.😓[/yellow]")
+                continue
+            selected_files.update(fzf_result)
+        else:
+            preview_selected_file(console, selected_files)
+            console.print("[yellow]─" * 50 + "[/yellow]")
+            console.print("[yellow]Type: 'n' to proceed to the next step.[/yellow]")
+            console.print("[yellow]Type: 'r' to re-select files.[/yellow]")
+            console.print("[yellow]Type: 's' to select more files.[/yellow]")
+            console.print("[red]Type: 'q' to quit.[/red]")
+            query = questionary.text("Type your choice:").ask()
 
-        # 检查是否被中断（questionary 返回 None）
-        if query is None:
-            console.print("\n[yellow]👋 Operation cancelled by user. Goodbye![/yellow]")
-            return
+            if query is None:
+                console.print(
+                    "\n[yellow]👋 Operation cancelled by user. Goodbye![/yellow]"
+                )
+                return
 
-        if query == "n":
-            break
-
-        # Perform search in cache
-        results = fuzzy_search_files(query, cache)
-        if not results:
-            console.print("[yellow]🧐 No files found matching your query.[/yellow]")
-            continue
-
-        choose_files = questionary.checkbox(
-            "Search results:",
-            choices=[questionary.Choice(title=file[0], value=file) for file in results],
-        ).ask()
-
-        # 检查选择是否被中断
-        if choose_files is None:
-            console.print("\n[yellow]👋 Selection cancelled. Goodbye![/yellow]")
-            return
-
-        if choose_files:
-            selected_files.update(choose_files)
+            if query.lower() == "n":
+                break
+            elif query.lower() == "r":
+                selected_files.clear()
+                continue
+            elif query.lower() == "s":
+                fzf_result = select_files_by_fzf(console)
+                if not fzf_result:
+                    console.print("[yellow]No files selected.😓[/yellow]")
+                    continue
+                selected_files.update(fzf_result)
+            elif query.lower() == "q":
+                console.print(
+                    "\n[yellow]👋 Operation cancelled by user. Goodbye![/yellow]"
+                )
+                return
 
     if not selected_files:
         console.print("[yellow]No files selected for copying. Exiting...👋[/yellow]")
-        return
-
-    # Double check selected files
-    console.print("[green]Selected files for copying:[/green]")
-    table = Table(box=HORIZONTALS, show_edge=False)
-    table.add_column("File", style="cyan", header_style="cyan", no_wrap=True)
-    table.add_column("Path", style="magenta", header_style="magenta")
-    for file, path, score in selected_files:
-        table.add_row(file, path)
-    console.print(table)
-    confirmed = questionary.confirm("Is that correct? (y/n)").ask()
-
-    # 检查确认是否被中断
-    if confirmed is None:
-        console.print("\n[yellow]👋 Confirmation cancelled. Goodbye![/yellow]")
-        return
-
-    if not confirmed:
-        console.print("[yellow]😵 Operation cancelled.[/yellow]")
         return
 
     while True:
@@ -126,6 +112,44 @@ def interactive(cp2_config: CP2Config, console: Console) -> None:
     console.print("[cyan]Copying files to selected destinations...[/cyan]")
 
     copy_files_to(target_path, console, selected_files, destinations)
+
+
+def preview_selected_file(console: Console, selected_files: Set[str]) -> None:
+    console.print("[green]Selected files for copying:[/green]")
+    table = Table(box=HORIZONTALS, show_edge=False)
+    table.add_column("#", style="yellow", header_style="yellow", width=3)
+    table.add_column("File", style="cyan", header_style="cyan", no_wrap=True)
+    table.add_column("Path", style="magenta", header_style="magenta")
+    for idx, path in enumerate(selected_files, 1):
+        file = Path(path).name
+        table.add_row(str(idx), file, path)
+    console.print(table)
+
+
+def select_files_by_fzf(console: Console) -> List[str]:
+    """
+    Use fzf to select files interactively.
+    command fd --type f | fzf --multi
+    """
+    try:
+        fzf_cmd = "fd --type f | fzf --multi"
+        fzf_result = subprocess.run(fzf_cmd, capture_output=True, text=True, shell=True)
+        if fzf_result.returncode == 0:
+            selected = [
+                line.strip()
+                for line in fzf_result.stdout.strip().split("\n")
+                if line.strip()
+            ]
+            return selected
+        else:
+            console.print("[red]Error:[/] No files selected or fzf command failed.")
+            return []
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(f"Error running fzf: {e}")
+    except FileNotFoundError:
+        raise SystemExit(
+            "fzf or fd command not found. Please install them to use this feature."
+        )
 
 
 def copy_files_to(target_path, console, selected_files, destinations):

@@ -1,4 +1,5 @@
-# TODO
+# Command Required
 
-- [ ] 准备配置文件
-- []
+- fd
+- fzf
+- bat
