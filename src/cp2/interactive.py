@@ -123,6 +123,10 @@ def interactive(cp2_config: CP2Config, target_path: str, console: Console) -> No
 
     console.print("[cyan]Copying files to selected destinations...[/cyan]")
 
+    copy_files_to(target_path, console, selected_files, destinations)
+
+
+def copy_files_to(target_path, console, selected_files, destinations):
     root_path = Path(target_path)
     for dest in destinations:
         dest_path = Path(dest)
@@ -137,3 +141,30 @@ def interactive(cp2_config: CP2Config, target_path: str, console: Console) -> No
         console.print(f"[green]✅ Copied files to {dest}[/green]")
 
     console.print("[green]🎉 All files copied successfully! 🎉[/green]")
+
+
+def copy_file_to(target_path, console, file_path, destinations):
+    root_path = Path(target_path)
+    file_path = Path(file_path)
+    for dest in destinations:
+        dest_path = Path(dest)
+        relative_path = file_path.relative_to(root_path)
+        target_file = dest_path / relative_path
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+
+        shutil.copy2(file_path, target_file)
+        console.print(f"[green]✅ Copied file to {dest}[/green]")
+
+
+def copy_dir_to(target_path, console, dir_path, destinations):
+    root_path = Path(target_path)
+    dir_path = Path(dir_path)
+    for dest in destinations:
+        dest_path = Path(dest)
+        source_path = Path(dir_path)
+        relative_path = source_path.relative_to(root_path)
+        target_dir = dest_path / relative_path
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        shutil.copytree(source_path, target_dir, dirs_exist_ok=True)
+        console.print(f"[green]✅ Copied directory to {dest}[/green]")

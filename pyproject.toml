@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "gitignore-parser>=0.1.12",
     "platformdirs>=4.3.8",
     "pydantic>=2.11.7",
     "questionary>=2.1.0",

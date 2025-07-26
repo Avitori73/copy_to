@@ -37,6 +37,7 @@ name = "copy-to"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "gitignore-parser" },
     { name = "platformdirs" },
     { name = "pydantic" },
     { name = "questionary" },
@@ -47,6 +48,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "gitignore-parser", specifier = ">=0.1.12" },
     { name = "platformdirs", specifier = ">=4.3.8" },
     { name = "pydantic", specifier = ">=2.11.7" },
     { name = "questionary", specifier = ">=2.1.0" },
@@ -54,6 +56,12 @@ requires-dist = [
     { name = "rich-click", specifier = ">=1.8.9" },
     { name = "toml", specifier = ">=0.10.2" },
 ]
+
+[[package]]
+name = "gitignore-parser"
+version = "0.1.12"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/86/a8/faf07759672973362e3f1f9742281a90aec7846e8a4043c4df5652990054/gitignore_parser-0.1.12.tar.gz", hash = "sha256:78b22243adc0f02102c56c5e8c9a1d9121394142ca6143a90daa7f8d7a07a17e", size = 5407, upload-time = "2025-04-14T04:21:11.009Z" }
 
 [[package]]
 name = "markdown-it-py"
