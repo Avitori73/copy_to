@@ -44,7 +44,7 @@ cp2 start
 ## FZF 使用
 
 由于 python 的目录遍历不够块，在获取文件列表时会有明显的卡顿感，这是需要配合一些工具来提升体验。
-使用 scoop 安装 [fd](https://github.com/sharkdp/fd) 和 [fzf](https://github.com/junegunn/fzf)，安装后可以使用下面的命令来替代 `cp2 start`。
+使用 [scoop](https://scoop.sh/) 安装 [fd](https://github.com/sharkdp/fd) 和 [fzf](https://github.com/junegunn/fzf)，安装后可以使用下面的命令来替代 `cp2 start`。
 
 ```bash
 cp2 fzf
